@@ -28,7 +28,8 @@ class App(QtGui.QMainWindow):
       self.train_labels = []
       self.keypressCount = 0
       self.currentLabel = 0
-      self.ser = serial.Serial('/dev/cu.usbmodem1411', 9600)
+    #   self.ser = serial.Serial('/dev/cu.usbmodem1411', 9600)
+      self.ser = serial.Serial('COM3', 57600)
       self.ser.flush()
       self.raw_channel_a  = [512.0] * windowSize
       self.raw_channel_b  = [512.0] * windowSize
@@ -111,6 +112,7 @@ class App(QtGui.QMainWindow):
 
    def _update(self):
       lineData = self.ser.readline()
+      print(lineData)
       readData = lineData.split(' ')
 
       # print("ReadData: ", readData)

@@ -13,36 +13,52 @@ void setup()
   pinMode(A1, INPUT_PULLUP);
   pinMode(A2, INPUT_PULLUP);
   pinMode(7, INPUT_PULLUP);
-  Serial.begin(9600);              //  setup serial
+
+  Timer1.initialize(1);
+  Timer1.attachInterrupt(callback);
+
+  Serial.begin(57600);              //  setup serial
 }
 
-void loop()
+void callback()
 {
-  /*
-  val_0[iter] = analogRead(A0);     // read the input pin
-  val_1[iter] = analogRead(A1);
-  val_2[iter] = analogRead(A2);
-  val_3[iter] = analogRead(A3);
-  iter++;
-  if(iter > BUFFER) {
-    iter = 0;
-  }
-
-  Serial.print(avg_val(val_0));
-  Serial.print(" ");
-  Serial.print(avg_val(val_1));
-  Serial.print(" ");
-  Serial.print(avg_val(val_2));
-  Serial.print(" ");
-  Serial.println(avg_val(val_3));
-  */
-  out_0 = ((out_0 * 0.6) + (analogRead(A0) * 0.4));
-  out_1 = ((out_1 * 0.6) + (analogRead(A1) * 0.4));
-  out_2 = ((out_2 * 0.6) + (analogRead(A2) * 0.4));
-  
+  out_0 = ((out_0 * 0.8) + (analogRead(A0) * 0.2));
+  out_1 = ((out_1 * 0.8) + (analogRead(A1) * 0.2));
+  out_2 = ((out_2 * 0.8) + (analogRead(A2) * 0.2));
   Serial.print(out_0);
   Serial.print(" ");
   Serial.print(out_1);
   Serial.print(" ");
   Serial.println(out_2);
+}
+
+void loop()
+{
+
+  // val_0[iter] = analogRead(A0);     // read the input pin
+  // val_1[iter] = analogRead(A1);
+  // val_2[iter] = analogRead(A2);
+  // val_3[iter] = analogRead(A3);
+  // iter++;
+  // if(iter > BUFFER) {
+  //   iter = 0;
+  // }
+
+  // Serial.print(avg_val(val_0));
+  // Serial.print(" ");
+  // Serial.print(avg_val(val_1));
+  // Serial.print(" ");
+  // Serial.print(avg_val(val_2));
+  // Serial.print(" ");
+  // Serial.println(avg_val(val_3));
+
+  // out_0 = ((out_0 * 0.6) + (analogRead(A0) * 0.4));
+  // out_1 = ((out_1 * 0.6) + (analogRead(A1) * 0.4));
+  // out_2 = ((out_2 * 0.6) + (analogRead(A2) * 0.4));
+  
+  // Serial.print(out_0);
+  // Serial.print(" ");
+  // Serial.print(out_1);
+  // Serial.print(" ");
+  // Serial.println(out_2);
 }
