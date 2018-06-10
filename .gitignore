@@ -1,0 +1,6 @@
+/DATA/*
+.DS_Store
+*.pickle
+*.dat
+*.h5
+*.csv
