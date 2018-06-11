@@ -6,40 +6,52 @@ import pyqtgraph as pg
 import serial
 import csv
 
-windowSize = 50
+from scipy.spatial.distance import euclidean
+from fastdtw import fastdtw
 
-# print(input_Raw_Data)
-# np.asarray([[512], [512], [512], [512]] * windowSize
+import scipy.signal as signal
 
-# ia_Data = [0] * windowSize
-# ib_Data = [0] * windowSize
-# ic_Data = [0] * windowSize
-# id_Data = [0] * windowSize
+windowSize = 150
+winYmin = 450
+winYmax = 550
+
+time_window = -16
+active_high = 530
+active_low = 512
+
+cali_samples = 2
+
+print('Begin calibration by pressing \'Space\'')
 
 class App(QtGui.QMainWindow):
    def __init__(self, parent=None):
       super(App, self).__init__(parent)
 
       #### Create Data Structures ####
-      self.train_data_a = []
-      self.train_data_b = []
-      self.train_data_c = []
+      # self.train_data_a = []
+      # self.train_data_b = []
+      # self.train_data_c = []
 
-      self.train_labels = []
-      self.keypressCount = 0
-      self.currentLabel = 0
-    #   self.ser = serial.Serial('/dev/cu.usbmodem1411', 9600)
-      self.ser = serial.Serial('COM3', 57600)
+      # self.train_labels = []
+      # self.keypressCount = 0
+      # self.currentLabel = 0
+
+      self.ser = serial.Serial('/dev/cu.usbmodem1411', 115200, parity=serial.PARITY_EVEN)
+    #   self.ser = serial.Serial('COM3', 57600)
       self.ser.flush()
       self.raw_channel_a  = [512.0] * windowSize
       self.raw_channel_b  = [512.0] * windowSize
       self.raw_channel_c  = [512.0] * windowSize
-      # self.avg_channel_a  = [512.0] * windowSize
-      # self.avg_channel_b  = [512.0] * windowSize
-      # self.avg_channel_c  = [512.0] * windowSize
-      # self.base_a         = 512.0
-      # self.base_b         = 512.0
-      # self.base_c         = 512.0
+
+      self.active_check   = [512.0]   * windowSize
+
+      self.avg_channel_a = 512
+      self.avg_channel_b = 512
+      self.avg_channel_c = 512
+
+      self.state = 0
+      self.cali_counter = 0
+      self.dtw_samples = []
 
       #### Create Gui Elements ###########
       self.mainbox = QtGui.QWidget()
@@ -54,22 +66,23 @@ class App(QtGui.QMainWindow):
 
       #  line plot
       self.raw_lineplot = self.canvas.addPlot()
-      self.raw_lineplot.setYRange(410, 590, padding=0)      
+      self.raw_lineplot.setXRange(0, windowSize, padding=0)      
+      self.raw_lineplot.setYRange(winYmin, winYmax, padding=0) 
+
       self.raw_0 = self.raw_lineplot.plot(pen='y')
       self.raw_1 = self.raw_lineplot.plot(pen='r')
       self.raw_2 = self.raw_lineplot.plot(pen='g')
-      # self.raw_3 = self.raw_lineplot.plot(pen='m')
 
-      self.active_lineplot = self.canvas.addPlot()
-      self.active_lineplot.setYRange(410, 590, padding=0)
-      self.avg_0 = self.active_lineplot.plot(pen='y')
-      self.avg_1 = self.active_lineplot.plot(pen='r')
-      self.avg_2 = self.active_lineplot.plot(pen='g')
-      # self.avg_3 = self.active_lineplot.plot(pen='m')
+      self.active = self.raw_lineplot.plot(pen='m')
 
+      self.avg_0 = self.raw_lineplot.plot(pen='y')
+      self.avg_1 = self.raw_lineplot.plot(pen='r')
+      self.avg_2 = self.raw_lineplot.plot(pen='g')
+
+      # First, design the Butterworth filter
+      self.B_filter, self.A_filter = signal.butter(2, 0.2, output='ba')
 
       #### Set Data  #####################
-
       self.x = np.linspace(0,1000., num=100)
       self.X,self.Y = np.meshgrid(self.x,self.x)
 
@@ -80,80 +93,204 @@ class App(QtGui.QMainWindow):
       #### Start  #####################
       self._update()
 
+   def dtw_compare(self, sample):
+      mins = []
+      for i in range(5):
+         min_ = 10000
+         for j in range(i * cali_samples, i * cali_samples + cali_samples):
+            distance_a, path_a = fastdtw(np.convolve(self.dtw_samples[j][0], [-1, 1]), np.convolve(sample[0], [-1, 1]), dist=euclidean)
+            distance_b, path_b = fastdtw(np.convolve(self.dtw_samples[j][1], [-1, 1]), np.convolve(sample[1], [-1, 1]), dist=euclidean)
+            distance_c, path_c = fastdtw(np.convolve(self.dtw_samples[j][2], [-1, 1]), np.convolve(sample[2], [-1, 1]), dist=euclidean)
+            dis = distance_a + distance_b + distance_c
+            if dis < min_:
+               min_ = dis
+         mins.append(min_)
+      print(mins)
+      min_val = np.asarray(mins).min()
+      if min_val < 100:
+         i = mins.index(min_val)
+         if i == 0:
+            print('Wave Left')
+         elif i == 1:
+            print('Wave Right')
+         elif i == 2:
+            print('Double-Tap')
+         elif i == 3:
+            print('Fist')
+         elif i == 4:
+            print('Finger-Spread')
+         else:
+            print('NULL')
+
+   def save_active(self, i):
+      start = 0
+      while self.active_check[start] == active_low:
+         start += 1
+         if start == windowSize:
+            print('NO ACTIVE ZONE')
+            self.cali_counter -= 1
+            return
+      end = start
+      while self.active_check[end] == active_high:
+         end += 1
+         if end == windowSize:
+            print('NO ISOLATED ZONE')
+            self.cali_counter -= 1
+            return
+      self.dtw_samples.append([signal.filtfilt(self.B_filter, self.A_filter, self.raw_channel_a)[start:end],
+                               signal.filtfilt(self.B_filter, self.A_filter, self.raw_channel_b)[start:end],
+                               signal.filtfilt(self.B_filter, self.A_filter, self.raw_channel_c)[start:end]])
+      return
+
    def keyPressEvent(self, event):
       if type(event) == QtGui.QKeyEvent:
-         print("KEYPRESS: ", self.keypressCount)
+         # print("KEYPRESS: ", self.keypressCount)
+         if self.state == 0:
+            self.state += 1
+            print('Perform \'Wave Left\'...')
+         elif self.state == 1:
+            self.save_active(self.state)
+            self.cali_counter += 1
+            if self.cali_counter < cali_samples:
+               print('Perform \'Wave Left\'...')
+            else:
+               self.state += 1
+               print('Perform \'Wave Right\'...')
+               self.cali_counter = 0
+         elif self.state == 2:
+            self.save_active(self.state)
+            self.cali_counter += 1
+            if self.cali_counter < cali_samples:
+               print('Perform \'Wave Right\'...')
+            else:
+               self.state += 1
+               print('Perform \'Double-Tap\'...')
+               self.cali_counter = 0
+         elif self.state == 3:
+            self.save_active(self.state)
+            self.cali_counter += 1
+            if self.cali_counter < cali_samples:
+               print('Perform \'Double-Tap\'...')
+            else:
+               self.state += 1
+               print('Perform \'Fist\'...')
+               self.cali_counter = 0
+         elif self.state == 4:
+            self.save_active(self.state)
+            self.cali_counter += 1
+            if self.cali_counter < cali_samples:
+               print('Perform \'Fist\'...')
+            else:
+               self.state += 1
+               print('Perform \'Finger-Spread\'...')
+               self.cali_counter = 0
+         elif self.state == 5:
+            self.save_active(self.state)
+            self.cali_counter += 1
+            if self.cali_counter < cali_samples:
+               print('Perform \'Finger-Spread\'...')
+            else:
+               self.state += 1
+         else:
+            print(len(self.dtw_samples))
+            # for sample in self.dtw_samples:
+            #    print('\t{}'.format(len(sample)))
+            #    for dtw in sample:
+            #       print('\t\t{}'.format(len(dtw)))
+            # print(self.dtw_samples[1][0])
 
-         self.train_data_a += [self.raw_channel_a]
-         self.train_data_b += [self.raw_channel_b]
-         self.train_data_c += [self.raw_channel_c]
+         # train_label_temp = np.zeros(6, dtype=int)
+         # train_label_temp[self.currentLabel] = 1
+         # # print(self.train_labels)
+         # self.train_labels += [train_label_temp]
+         # # print('Keypress: {}'.format(self.keypressCount))
 
-         train_label_temp = np.zeros(6, dtype=int)
-         train_label_temp[self.currentLabel] = 1
-         # print(self.train_labels)
-         self.train_labels += [train_label_temp]
-         # print('Keypress: {}'.format(self.keypressCount))
+         # self.keypressCount += 1
+         # if self.keypressCount % 100 == 0:
+         #    print('GESTURE_CHANGE!')
+         #    self.currentLabel += 1
 
-         self.keypressCount += 1
-         if self.keypressCount % 100 == 0:
-            print('GESTURE_CHANGE!')
-            self.currentLabel += 1
-
-         if self.keypressCount == 600:
-            train_data = np.asarray([self.train_data_a, self.train_data_b, self.train_data_c])
-            with open('DATA/train_data.dat', 'wb') as outputFile:
-               np.save(outputFile, train_data)
-            with open('DATA/train_labels.dat', 'wb') as outputFile:
-               np.save(outputFile, self.train_labels)
-            exit()
+         # if self.keypressCount == 600:
+         #    train_data = np.asarray([self.train_data_a, self.train_data_b, self.train_data_c])
+         #    with open('DATA/train_data.dat', 'wb') as outputFile:
+         #       np.save(outputFile, train_data)
+         #    with open('DATA/train_labels.dat', 'wb') as outputFile:
+         #       np.save(outputFile, self.train_labels)
+            # exit()
             
-
-        
 
    def _update(self):
       lineData = self.ser.readline()
-      print(lineData)
       readData = lineData.split(' ')
 
       # print("ReadData: ", readData)
 
       self.raw_channel_a.append(float(readData[0]))
-      self.raw_channel_b.append(float(readData[1]))
-      self.raw_channel_c.append(float(readData[2]))
-
       self.raw_channel_a.pop(0)
+
+      self.raw_channel_b.append(float(readData[1]))
       self.raw_channel_b.pop(0)
+
+      self.raw_channel_c.append(float(readData[2]))
       self.raw_channel_c.pop(0)
 
+      # self.avg_channel_a = self.avg_channel_a * 0.999 + self.raw_channel_a[-1] * 0.001
+      # self.avg_channel_b = self.avg_channel_b * 0.999 + self.raw_channel_b[-1] * 0.001
+      # self.avg_channel_c = self.avg_channel_c * 0.999 + self.raw_channel_c[-1] * 0.001
 
-      # a_Average = np.average(a_Data)
-      # b_Average = np.average(b_Data)
-      # c_Average = np.average(c_Data)
-      # d_Average = np.average(d_Data)
+      # if abs(self.raw_channel_a[-1] - self.raw_channel_a[-3]) > 1:
 
-      # ia_Data.append(1.0 if a_Data[-1] > a_Average + 2.5 else (-1.0 if a_Data[-1] < a_Average - 2.5 else 0.0))
-      # ib_Data.append(1.0 if b_Data[-1] > b_Average + 2.5 else (-1.0 if b_Data[-1] < b_Average - 2.5 else 0.0))
-      # ic_Data.append(1.0 if c_Data[-1] > c_Average + 2.5 else (-1.0 if c_Data[-1] < c_Average - 2.5 else 0.0))
-      # id_Data.append(1.0 if d_Data[-1] > d_Average + 2.5 else (-1.0 if d_Data[-1] < d_Average - 2.5 else 0.0))
+      std_0 = np.std(self.raw_channel_a[time_window:])
+      std_1 = np.std(self.raw_channel_b[time_window:])
+      std_2 = np.std(self.raw_channel_c[time_window:])
 
-      # ia_Data.pop(0)
-      # ib_Data.pop(0)
-      # ic_Data.pop(0)
-      # id_Data.pop(0)
+      if std_0 + std_1 + std_2 > 5.0:
+         for i in range(time_window, -1,):
+            self.active_check[i] = active_high
+         self.active_check.append(active_high)
+      else:
+         self.avg_channel_a = np.average(self.raw_channel_a[time_window:])
+         self.avg_channel_b = np.average(self.raw_channel_b[time_window:])
+         self.avg_channel_c = np.average(self.raw_channel_c[time_window:])
+         self.active_check.append(active_low)
+      self.active_check.pop(0)
 
-      self.raw_0.setData(np.asarray(self.raw_channel_a))
-      self.raw_1.setData(np.asarray(self.raw_channel_b))
-      self.raw_2.setData(np.asarray(self.raw_channel_c))
+
+      if self.state > 5:
+         if self.active_check[time_window - 1] > self.active_check[time_window]:
+            start = time_window - 1
+            while(self.active_check[start] == active_high):
+               start -= 1
+               if start == -1 * windowSize:
+                  start = time_window - 1
+                  break
+            if (time_window - 1) - start > 5:
+               self.dtw_compare([signal.filtfilt(self.B_filter, self.A_filter, self.raw_channel_a)[start:(time_window - 1)], 
+                                 signal.filtfilt(self.B_filter, self.A_filter, self.raw_channel_b)[start:(time_window - 1)],
+                                 signal.filtfilt(self.B_filter, self.A_filter, self.raw_channel_c)[start:(time_window - 1)]])
+         
+
+      # self.raw_0.setData(np.asarray(self.raw_channel_a))
+      # self.raw_1.setData(np.asarray(self.raw_channel_b))
+      # self.raw_2.setData(np.asarray(self.raw_channel_c))
+
+      self.raw_0.setData(signal.filtfilt(self.B_filter, self.A_filter, self.raw_channel_a))
+      self.raw_1.setData(signal.filtfilt(self.B_filter, self.A_filter, self.raw_channel_b))
+      self.raw_2.setData(signal.filtfilt(self.B_filter, self.A_filter, self.raw_channel_c))
+
+      # signal.filtfilt(self.B_filter, self.A_filter, self.raw_channel_a)
+
+      self.avg_0.setData(np.full(windowSize, self.avg_channel_a))
+      self.avg_1.setData(np.full(windowSize, self.avg_channel_b))
+      self.avg_2.setData(np.full(windowSize, self.avg_channel_c))
+
+      self.active.setData(np.asarray(self.active_check))
       # self.raw_3.setData(np.asarray(self.input_Raw_Data)[:,3])
 
       # self.avg_0.setData(np.asarray(self.avg_Data)[:,0])
       # self.avg_1.setData(np.asarray(self.avg_Data)[:,1])
       # self.avg_2.setData(np.asarray(self.avg_Data)[:,2])
       # self.avg_3.setData(np.asarray(self.avg_Data)[:,3])
-      # self.ia.setData(np.asarray(ia_Data))
-      # self.ib.setData(np.asarray(ib_Data))
-      # self.ic.setData(np.asarray(ic_Data))
-      # self.id.setData(np.asarray(id_Data))
 
 
       now = time.time()

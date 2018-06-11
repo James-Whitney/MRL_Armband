@@ -6,30 +6,40 @@ float out_2 = 512;
 
 int iter = 0;
 
+#include "TimerOne.h"
+
 void setup()
 {
   int i;
-  pinMode(A0, INPUT_PULLUP);
-  pinMode(A1, INPUT_PULLUP);
-  pinMode(A2, INPUT_PULLUP);
-  pinMode(7, INPUT_PULLUP);
+  pinMode(A0, INPUT);
+  pinMode(A1, INPUT);
+  pinMode(A2, INPUT);
+  pinMode(7, INPUT);
 
-  Timer1.initialize(1);
+  Timer1.initialize(1000);
   Timer1.attachInterrupt(callback);
 
-  Serial.begin(57600);              //  setup serial
+  Serial.begin(115200, SERIAL_8E1);              //  setup serial
 }
 
 void callback()
 {
-  out_0 = ((out_0 * 0.8) + (analogRead(A0) * 0.2));
-  out_1 = ((out_1 * 0.8) + (analogRead(A1) * 0.2));
-  out_2 = ((out_2 * 0.8) + (analogRead(A2) * 0.2));
-  Serial.print(out_0);
-  Serial.print(" ");
-  Serial.print(out_1);
-  Serial.print(" ");
-  Serial.println(out_2);
+  out_0 += analogRead(A0);
+  out_1 += analogRead(A1);
+  out_2 += analogRead(A2);
+
+  iter++;
+  if(iter > 24) {
+    iter = 0;
+    Serial.print(out_0 / 25.0);
+    Serial.print(" ");
+    Serial.print(out_1 / 25.0);
+    Serial.print(" ");
+    Serial.println(out_2 / 25.0);
+    out_0 = 0;
+    out_1 = 0;
+    out_2 = 0;
+  }
 }
 
 void loop()
