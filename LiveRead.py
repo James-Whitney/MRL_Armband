@@ -8,37 +8,34 @@ import csv
 
 from scipy.spatial.distance import euclidean
 from fastdtw import fastdtw
+from multiprocessing import Pool
+
 
 import scipy.signal as signal
 
-windowSize = 150
+pool = Pool(3)
+
+windowSize = 75
 winYmin = 450
 winYmax = 550
 
-time_window = -16
+time_window = -8
 active_high = 530
 active_low = 512
 
 cali_samples = 2
-
 print('Begin calibration by pressing \'Space\'')
 
 class App(QtGui.QMainWindow):
    def __init__(self, parent=None):
       super(App, self).__init__(parent)
 
-      #### Create Data Structures ####
-      # self.train_data_a = []
-      # self.train_data_b = []
-      # self.train_data_c = []
-
-      # self.train_labels = []
-      # self.keypressCount = 0
-      # self.currentLabel = 0
-
+      #### Change these lines to select the port ####
       self.ser = serial.Serial('/dev/cu.usbmodem1411', 115200, parity=serial.PARITY_EVEN)
-    #   self.ser = serial.Serial('COM3', 57600)
+    #   self.ser = serial.Serial('COM3', 115200, parity=serial.PARITY_EVEN)
       self.ser.flush()
+
+      #### Initalize windows ####
       self.raw_channel_a  = [512.0] * windowSize
       self.raw_channel_b  = [512.0] * windowSize
       self.raw_channel_c  = [512.0] * windowSize
@@ -98,9 +95,9 @@ class App(QtGui.QMainWindow):
       for i in range(5):
          min_ = 10000
          for j in range(i * cali_samples, i * cali_samples + cali_samples):
-            distance_a, path_a = fastdtw(np.convolve(self.dtw_samples[j][0], [-1, 1]), np.convolve(sample[0], [-1, 1]), dist=euclidean)
-            distance_b, path_b = fastdtw(np.convolve(self.dtw_samples[j][1], [-1, 1]), np.convolve(sample[1], [-1, 1]), dist=euclidean)
-            distance_c, path_c = fastdtw(np.convolve(self.dtw_samples[j][2], [-1, 1]), np.convolve(sample[2], [-1, 1]), dist=euclidean)
+            distance_a, path_a = fastdtw(np.convolve(self.dtw_samples[j][0][1::2], [-1, 1]), np.convolve(sample[0][1::2], [-1, 1]), dist=euclidean)
+            distance_b, path_b = fastdtw(np.convolve(self.dtw_samples[j][1][1::2], [-1, 1]), np.convolve(sample[1][1::2], [-1, 1]), dist=euclidean)
+            distance_c, path_c = fastdtw(np.convolve(self.dtw_samples[j][2][1::2], [-1, 1]), np.convolve(sample[2][1::2], [-1, 1]), dist=euclidean)
             dis = distance_a + distance_b + distance_c
             if dis < min_:
                min_ = dis
@@ -191,39 +188,14 @@ class App(QtGui.QMainWindow):
                print('Perform \'Finger-Spread\'...')
             else:
                self.state += 1
+               print('Entering Live Mode:')
          else:
             print(len(self.dtw_samples))
-            # for sample in self.dtw_samples:
-            #    print('\t{}'.format(len(sample)))
-            #    for dtw in sample:
-            #       print('\t\t{}'.format(len(dtw)))
-            # print(self.dtw_samples[1][0])
-
-         # train_label_temp = np.zeros(6, dtype=int)
-         # train_label_temp[self.currentLabel] = 1
-         # # print(self.train_labels)
-         # self.train_labels += [train_label_temp]
-         # # print('Keypress: {}'.format(self.keypressCount))
-
-         # self.keypressCount += 1
-         # if self.keypressCount % 100 == 0:
-         #    print('GESTURE_CHANGE!')
-         #    self.currentLabel += 1
-
-         # if self.keypressCount == 600:
-         #    train_data = np.asarray([self.train_data_a, self.train_data_b, self.train_data_c])
-         #    with open('DATA/train_data.dat', 'wb') as outputFile:
-         #       np.save(outputFile, train_data)
-         #    with open('DATA/train_labels.dat', 'wb') as outputFile:
-         #       np.save(outputFile, self.train_labels)
-            # exit()
             
 
    def _update(self):
       lineData = self.ser.readline()
       readData = lineData.split(' ')
-
-      # print("ReadData: ", readData)
 
       self.raw_channel_a.append(float(readData[0]))
       self.raw_channel_a.pop(0)
@@ -233,12 +205,6 @@ class App(QtGui.QMainWindow):
 
       self.raw_channel_c.append(float(readData[2]))
       self.raw_channel_c.pop(0)
-
-      # self.avg_channel_a = self.avg_channel_a * 0.999 + self.raw_channel_a[-1] * 0.001
-      # self.avg_channel_b = self.avg_channel_b * 0.999 + self.raw_channel_b[-1] * 0.001
-      # self.avg_channel_c = self.avg_channel_c * 0.999 + self.raw_channel_c[-1] * 0.001
-
-      # if abs(self.raw_channel_a[-1] - self.raw_channel_a[-3]) > 1:
 
       std_0 = np.std(self.raw_channel_a[time_window:])
       std_1 = np.std(self.raw_channel_b[time_window:])
@@ -268,30 +234,16 @@ class App(QtGui.QMainWindow):
                self.dtw_compare([signal.filtfilt(self.B_filter, self.A_filter, self.raw_channel_a)[start:(time_window - 1)], 
                                  signal.filtfilt(self.B_filter, self.A_filter, self.raw_channel_b)[start:(time_window - 1)],
                                  signal.filtfilt(self.B_filter, self.A_filter, self.raw_channel_c)[start:(time_window - 1)]])
-         
-
-      # self.raw_0.setData(np.asarray(self.raw_channel_a))
-      # self.raw_1.setData(np.asarray(self.raw_channel_b))
-      # self.raw_2.setData(np.asarray(self.raw_channel_c))
 
       self.raw_0.setData(signal.filtfilt(self.B_filter, self.A_filter, self.raw_channel_a))
       self.raw_1.setData(signal.filtfilt(self.B_filter, self.A_filter, self.raw_channel_b))
       self.raw_2.setData(signal.filtfilt(self.B_filter, self.A_filter, self.raw_channel_c))
-
-      # signal.filtfilt(self.B_filter, self.A_filter, self.raw_channel_a)
 
       self.avg_0.setData(np.full(windowSize, self.avg_channel_a))
       self.avg_1.setData(np.full(windowSize, self.avg_channel_b))
       self.avg_2.setData(np.full(windowSize, self.avg_channel_c))
 
       self.active.setData(np.asarray(self.active_check))
-      # self.raw_3.setData(np.asarray(self.input_Raw_Data)[:,3])
-
-      # self.avg_0.setData(np.asarray(self.avg_Data)[:,0])
-      # self.avg_1.setData(np.asarray(self.avg_Data)[:,1])
-      # self.avg_2.setData(np.asarray(self.avg_Data)[:,2])
-      # self.avg_3.setData(np.asarray(self.avg_Data)[:,3])
-
 
       now = time.time()
       dt = (now-self.lastupdate)
@@ -305,7 +257,6 @@ class App(QtGui.QMainWindow):
       QtCore.QTimer.singleShot(1, self._update)
       self.counter += 1
       
-
 
 if __name__ == '__main__':
 
